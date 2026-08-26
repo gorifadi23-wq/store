@@ -1,79 +1,100 @@
 import flet as ft
 import pandas as pd
-import os
+import io
 
 def main(page: ft.Page):
-    page.title = "مستودع قطع الغيار"
-    page.theme_mode = ft.ThemeMode.DARK  # متوافق مع Dark Mode الخاص بـ HyperOS
-    page.padding = 15
-    page.vertical_alignment = ft.MainAxisAlignment.START
+    page.title = "قارئ ومحرك بحث Excel"
+    page.rtl = True
+    page.padding = 20
+    
+    df_data = None
 
-    # متغير لتخزين بيانات الإكسل
-    df = None
+    search_input = ft.TextField(
+        label="اكتب الكلمة أو الرقم للبحث...", 
+        expand=True, 
+        disabled=True,
+        hint_text="ادخل نص البحث هنا..."
+    )
+    results_list = ft.ListView(expand=True, spacing=10)
+    status_text = ft.Text("يرجى اختيار ملف Excel من الهاتف للبدء", color="grey")
 
-    # نافذة عرض النتائج
-    results_list = ft.ListView(expand=1, spacing=10, padding=0)
+    # دالة التعامل مع استرجاع الملف من مستعرض ملفات الهاتف
+    def on_file_picked(e: ft.FilePickerResultEvent):
+        nonlocal df_data
+        if e.files and len(e.files) > 0:
+            selected_file = e.files[0]
+            status_text.value = f"جاري قراءة الملف: {selected_file.name}..."
+            page.update()
+            
+            try:
+                if selected_file.path:
+                    df_data = pd.read_excel(selected_file.path)
+                else:
+                    with open(selected_file.path, 'rb') as f:
+                        df_data = pd.read_excel(io.BytesIO(f.read()))
 
-    def load_excel():
-        nonlocal df
-        # يمكنك وضع اسم ملف الإكسل بجانب السكربت أو جعله يختاره
-        file_path = "warehouse.xlsx" 
-        if os.path.exists(file_path):
-            df = pd.read_excel(file_path)
-            # التأكد من تطابق الأعمدة تماماً مع صورتك
-            df.columns = ["الرمز", "اسم المادة", "مفتاح 1", "مفتاح 2", "مفتاح 3", "وحدة القياس", "الرصيد الحالي"]
-            show_data(df)
-        else:
-            results_list.controls.clear()
-            results_list.controls.append(
-                ft.Text("⚠️ ملف الإكسل غير موجود، يرجى وضع الملف باسم warehouse.xlsx", color="red")
-            )
+                search_input.disabled = False
+                status_text.value = f"تم تحميل الملف بنجاح! عدد الصفوف: {len(df_data)}"
+                status_text.color = "green"
+            except Exception as ex:
+                status_text.value = f"حدث خطأ أثناء قراءة الملف: {str(ex)}"
+                status_text.color = "red"
+            
             page.update()
 
-    def show_data(data_frame):
+    file_picker = ft.FilePicker(on_result=on_file_picked)
+    page.overlay.append(file_picker)
+
+    # دالة البحث في كامل جدول البيانات
+    def search_data(e):
+        if df_data is None or not search_input.value:
+            return
+        
+        query = search_input.value.strip().lower()
+        
+        mask = df_data.astype(str).apply(lambda row: row.str.lower().str.contains(query).any(), axis=1)
+        filtered_df = df_data[mask]
+        
         results_list.controls.clear()
-        for index, row in data_frame.iterrows():
-            card = ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Text(f"الرمز: {row['الرمز']}", weight=ft.FontWeight.BOLD, color="blue_400"),
-                        ft.Text(f"الرصيد: {row['الرصيد الحالي']} {row['وحدة القياس']}", weight=ft.FontWeight.BOLD, color="green_400")
-                    ], alignment=ft.MainAxisAlignment.BETWEEN),
-                    ft.Text(f"{row['اسم المادة']}", size=16, weight=ft.FontWeight.BOLD),
-                    ft.Text(f"التصنيف: {row['مفتاح 1']} / {row['مفتاح 2']} / {row['مفتاح 3']}", size=12, color="grey_400"),
-                ]),
-                padding=12,
-                border_radius=10,
-                bgcolor=ft.colors.SURFACE_VARIANT,
-                margin=ft.margin.only(bottom=5)
+        
+        if filtered_df.empty:
+            results_list.controls.append(
+                ft.Text("لا توجد نتائج مطابقة لعملية البحث", color="red")
             )
-            results_list.controls.append(card)
+        else:
+            for index, row in filtered_df.iterrows():
+                row_items = [f"**{col}**: {val}" for col, val in row.items() if pd.notna(val)]
+                row_str = " | ".join(row_items)
+                
+                results_list.controls.append(
+                    ft.Card(
+                        content=ft.Container(
+                            content=ft.Markdown(row_str),
+                            padding=12
+                        )
+                    )
+                )
         page.update()
 
-    def search_items(e):
-        nonlocal df
-        if df is not None:
-            query = search_box.value.lower()
-            # البحث في الرمز أو اسم المادة
-            filtered_df = df[
-                df['اسم المادة'].astype(str).str.lower().str.contains(query, na=False) |
-                df['الرمز'].astype(str).str.lower().str.contains(query, na=False)
-            ]
-            show_data(filtered_df)
+    search_input.on_change = search_data
 
-    search_box = ft.TextField(
-        label="ابحث برمز المادة أو اسمها...",
-        prefix_icon=ft.icons.SEARCH,
-        on_change=search_items,
-        border_radius=10
+    # استخدام النصوص المباشرة للأيقونات تفادياً لأخطاء الإصدارات
+    pick_button = ft.ElevatedButton(
+        "اختيار ملف Excel", 
+        icon="folder_open",
+        on_click=lambda _: file_picker.pick_files(
+            dialog_title="اختر ملف Excel",
+            allowed_extensions=["xlsx", "xls"]
+        )
     )
 
     page.add(
-        ft.Text("مستعرض المستودع الرقمي", size=20, weight=ft.FontWeight.BOLD),
-        search_box,
-        results_list
+        ft.Column([
+            ft.Row([pick_button, search_input]),
+            status_text,
+            ft.Divider(),
+            results_list
+        ], expand=True)
     )
-
-    load_excel()
 
 ft.app(target=main)

@@ -18,7 +18,7 @@ def main(page: ft.Page):
     results_list = ft.ListView(expand=True, spacing=10)
     status_text = ft.Text("يرجى اختيار ملف Excel من الهاتف للبدء", color="grey")
 
-    # دالة التعامل مع استرجاع الملف من مستعرض ملفات الهاتف
+    # دالة قراءة وتنسيق الملف
     def on_file_picked(e: ft.FilePickerResultEvent):
         nonlocal df_data
         if e.files and len(e.files) > 0:
@@ -42,10 +42,12 @@ def main(page: ft.Page):
             
             page.update()
 
-    file_picker = ft.FilePicker(on_result=on_file_picked)
+    # إنشاء FilePicker وتعيين الحدث بشكل منفصل ليتوافق مع جميع الإصدارات
+    file_picker = ft.FilePicker()
+    file_picker.on_result = on_file_picked
     page.overlay.append(file_picker)
 
-    # دالة البحث في كامل جدول البيانات
+    # دالة تصفية والبحث في البيانات
     def search_data(e):
         if df_data is None or not search_input.value:
             return
@@ -78,7 +80,7 @@ def main(page: ft.Page):
 
     search_input.on_change = search_data
 
-    # استخدام النصوص المباشرة للأيقونات تفادياً لأخطاء الإصدارات
+    # زر اختيار الملف
     pick_button = ft.ElevatedButton(
         "اختيار ملف Excel", 
         icon="folder_open",
